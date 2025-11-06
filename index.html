@@ -68,7 +68,7 @@
       for (const set of mustHave) chars.push(set[secureRandomInt(set.length)]);
       while (chars.length < len) chars.push(pool[secureRandomInt(pool.length)]);
 
-      // mélange Fisher-Yates
+      // mélange Fisher–Yates
       for (let i = chars.length - 1; i > 0; i--) {
         const j = secureRandomInt(i + 1);
         [chars[i], chars[j]] = [chars[j], chars[i]];
@@ -76,8 +76,19 @@
       return chars.join('');
     }
 
-    // Inclusion–exclusion (BigInt)
-    function countCombinations(len, opts) {
+    // Nombre total de combinaisons (pool^len)
+    function totalCombinations(len, opts) {
+      let poolSize = 0;
+      if (opts.upper) poolSize += upper.length;
+      if (opts.lower) poolSize += lower.length;
+      if (opts.digits) poolSize += digits.length;
+      if (opts.symbols) poolSize += symbols.length;
+      if (poolSize === 0 || len <= 0) return 0n;
+      return BigInt(poolSize) ** BigInt(len);
+    }
+
+    // Inclusion–exclusion pour "au moins un de chaque type"
+    function constrainedCombinations(len, opts) {
       const sets = [];
       if (opts.upper) sets.push(upper.length);
       if (opts.lower) sets.push(lower.length);
@@ -92,19 +103,14 @@
       const subsets = 1 << k;
 
       for (let mask = 0; mask < subsets; mask++) {
-        let removed = 0;
-        let bits = 0;
+        let removed = 0, bits = 0;
         for (let i = 0; i < k; i++) {
-          if (mask & (1 << i)) {
-            removed += sets[i];
-            bits++;
-          }
+          if (mask & (1 << i)) { removed += sets[i]; bits++; }
         }
         const base = S - removed;
         if (base <= 0) continue;
         const term = BigInt(base) ** BigInt(len);
-        if (bits % 2 === 1) total -= term;
-        else total += term;
+        total += (bits % 2 === 0 ? term : -term);
       }
       return total;
     }
@@ -129,19 +135,16 @@
         symbols: document.getElementById('symbols').checked
       };
 
-      try {
-        const combos = countCombinations(len, opts);
-        const f = formatBigIntCount(combos);
-        document.getElementById('combos').textContent =
-          'Combinaisons possibles : ' + f.text;
-        document.getElementById('explain').textContent =
-          '≈ ' + f.sci + ' — Entropie ≈ ' + f.bits.toFixed(2) + ' bits';
-      } catch {
-        document.getElementById('combos').textContent =
-          'Combinaisons possibles : —';
-        document.getElementById('explain').textContent =
-          'Erreur de calcul (longueur trop grande ?)';
-      }
+      const total = totalCombinations(len, opts);
+      const constrained = constrainedCombinations(len, opts);
+      const ftot = formatBigIntCount(total);
+      const fcon = formatBigIntCount(constrained);
+
+      document.getElementById('combos').textContent =
+        `Total (pool^len) : ${ftot.text} — Avec contrainte : ${fcon.text}`;
+
+      document.getElementById('explain').textContent =
+        `≈ ${fcon.sci} — Entropie ≈ ${fcon.bits.toFixed(2)} bits  (sur ${ftot.bits.toFixed(2)} bits possibles)`;
     }
 
     function estimateStrength(pw) {
@@ -154,7 +157,6 @@
       return 'Fort';
     }
 
-    // événements
     document.getElementById('gen').addEventListener('click', () => {
       const len = parseInt(document.getElementById('length').value,10) || 8;
       const opts = {
